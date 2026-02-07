@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "SportMatch",
+    "slug": "sportmatch",
+    "version": "1.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sportmatch.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Usamos Face ID para permitirte acceder de forma segura a tu cuenta",
+        "NSCameraUsageDescription": "Necesitamos acceso a la cámara para tomar fotos de perfil",
+        "NSPhotoLibraryUsageDescription": "Necesitamos acceso a tu galería para seleccionar fotos de perfil"
+      }
+    },
+    "android": {
+      "package": "com.sportmatch.app",
+      "permissions": [
+        "USE_FINGERPRINT",
+        "USE_BIOMETRIC",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "scheme": "sportmatch",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "La app necesita acceso a tus fotos para actualizar tu perfil"
+        }
+      ]
+    ]
+  }
+}

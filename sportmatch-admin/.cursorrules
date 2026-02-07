@@ -1,0 +1,92 @@
+# SportMatch Admin - Reglas de Desarrollo
+
+## Stack Tecnológico
+- Framework: Next.js 15 (App Router)
+- Lenguaje: TypeScript
+- Base de datos: Supabase (PostgreSQL)
+- Estilos: Tailwind CSS
+- Autenticación: Supabase Auth
+- Realtime: Supabase Realtime
+
+## Convenciones de Código
+
+### TypeScript
+- Usar tipos explícitos siempre que sea posible
+- Evitar `any`, preferir `unknown` cuando sea necesario
+- Definir interfaces para props de componentes
+- Usar tipos de Supabase desde `database.types.ts`
+
+### Componentes React
+- Usar 'use client' solo cuando sea necesario (interactividad, hooks)
+- Preferir Server Components cuando sea posible
+- Nombrar componentes en PascalCase
+- Exportar como default
+
+### Estructura de archivos
+- Pages en `app/`
+- Componentes reutilizables en `components/`
+- Utilidades en `lib/`
+- Tipos en `types/`
+
+### Supabase
+- Usar `createClient()` de `@/lib/supabase/server` en Server Components
+- Usar `createClient()` de `@/lib/supabase/client` en Client Components
+- Siempre manejar errores de Supabase
+- Verificar autenticación antes de operaciones sensibles
+
+### Estilos
+- Usar Tailwind CSS exclusivamente
+- Clases responsive: mobile-first
+- Colores consistentes con el tema verde
+- Usar `cn()` de `lib/utils.ts` para clases condicionales
+
+### Seguridad
+- RLS habilitado en todas las tablas
+- Verificar permisos en el servidor, no solo en el cliente
+- No exponer información sensible en el cliente
+- Validar entrada de usuarios
+
+### Realtime
+- Suscribirse a cambios de Supabase usando `supabase.channel()`
+- Limpiar suscripciones en `useEffect` cleanup
+- Mostrar notificaciones con `toast` de sonner
+- Actualizar UI automáticamente con `router.refresh()`
+
+## Buenas Prácticas
+
+1. **Manejo de errores**: Siempre usar try-catch y mostrar mensajes al usuario
+2. **Loading states**: Mostrar indicadores de carga durante operaciones async
+3. **Validación**: Validar formularios en cliente y servidor
+4. **Accesibilidad**: Usar labels, aria-labels y roles semánticos
+5. **Performance**: Usar índices en queries, evitar N+1 queries
+6. **SEO**: Configurar metadata en cada página
+
+## Patrones Comunes
+
+### Consulta con RLS
+```typescript
+const { data, error } = await supabase
+  .from('tabla')
+  .select('*')
+  .eq('admin_id', user.id);
+```
+
+### Notificación de éxito/error
+```typescript
+toast.success('Operación exitosa');
+toast.error('Error: ' + error.message);
+```
+
+### Redirección después de cambios
+```typescript
+router.push('/ruta');
+router.refresh();
+```
+
+## Evitar
+
+- ❌ Operaciones de DB en Client Components sin autenticación
+- ❌ Exponer claves sensibles en variables de entorno públicas
+- ❌ Queries sin RLS
+- ❌ No manejar estados de loading/error
+- ❌ Hardcodear valores que deberían ser configurables
