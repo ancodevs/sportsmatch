@@ -66,7 +66,8 @@ export default function CreateMatchScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [maxPlayers, setMaxPlayers] = useState('10');
   const [matchType, setMatchType] = useState('futbol');
-  const [gameMode, setGameMode] = useState('mixed');
+  const [gameMode, setGameMode] = useState('selection');
+  const [genderMode, setGenderMode] = useState('mixed');
   const [price, setPrice] = useState('0');
   
   // Location & Courts state
@@ -347,9 +348,10 @@ export default function CreateMatchScreen() {
             max_players: parseInt(maxPlayers),
             match_type: matchType,
             game_mode: gameMode,
+            gender_mode: genderMode,
             price: parseInt(price),
             created_by: user.id,
-            status: 'pending'
+            status: 'open' // Estado inicial: abierto para inscripciones
           }
         ])
         .select()
@@ -359,13 +361,25 @@ export default function CreateMatchScreen() {
 
       // Add creator as first player
       if (data) {
+        // Determinar el equipo del creador según el modo de juego
+        let creatorTeam = null;
+        if (gameMode === 'selection') {
+          // En modo selección, el creador va al Equipo A
+          creatorTeam = 'A';
+        } else if (gameMode === 'random') {
+          // En modo aleatorio, el equipo se asigna después
+          creatorTeam = null;
+        }
+        // Para modo 'teams' se manejará diferente en el futuro
+        
         await supabase
           .from('match_players')
           .insert([
             {
               match_id: data.id,
               player_id: user.id,
-              is_captain: true
+              is_captain: true,
+              team: creatorTeam
             }
           ]);
       }
@@ -677,16 +691,37 @@ export default function CreateMatchScreen() {
 
         {/* Modo de juego */}
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Modo de juego</Text>
+          <Text style={styles.label}>Modo de Juego</Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={gameMode}
               onValueChange={(value) => setGameMode(value)}
               style={styles.picker}
             >
-              <Picker.Item label="Mixto" value="mixed" />
-              <Picker.Item label="Masculino" value="male" />
-              <Picker.Item label="Femenino" value="female" />
+              <Picker.Item label="🎯 Selección de Equipos" value="selection" />
+              <Picker.Item label="🎲 Aleatorio" value="random" />
+              <Picker.Item label="👥 Equipos Creados" value="teams" />
+            </Picker>
+          </View>
+          <Text style={styles.helperText}>
+            {gameMode === 'selection' && '• Los jugadores eligen su equipo al unirse'}
+            {gameMode === 'random' && '• Se forman equipos automáticamente al llenarse'}
+            {gameMode === 'teams' && '• Solo equipos pre-formados pueden jugar'}
+          </Text>
+        </View>
+
+        {/* Género del partido */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Género</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={genderMode}
+              onValueChange={(value) => setGenderMode(value)}
+              style={styles.picker}
+            >
+              <Picker.Item label="👫 Mixto" value="mixed" />
+              <Picker.Item label="👨 Masculino" value="male" />
+              <Picker.Item label="👩 Femenino" value="female" />
             </Picker>
           </View>
         </View>
@@ -943,6 +978,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#059669',
+  },
+  helperText: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   createButton: {
     backgroundColor: '#10B981',

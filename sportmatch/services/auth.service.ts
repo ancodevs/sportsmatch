@@ -240,17 +240,86 @@ class AuthService {
   // Subir avatar
   async uploadAvatar(userId: string, imageUri: string) {
     try {
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      const fileExt = imageUri.split('.').pop();
+      // Extraer extensión del archivo
+      const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const filePath = `${fileName}`;
+
+      // Leer el archivo como base64
+      let base64Data: string;
+      
+      if (Platform.OS === 'web') {
+        // En web, usar fetch
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        
+        base64Data = await new Promise((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        // En móvil, usar fetch para obtener el contenido
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        
+        // Convertir blob a ArrayBuffer
+        const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as ArrayBuffer);
+          reader.onerror = reject;
+          reader.readAsArrayBuffer(blob);
+        });
+
+        // Crear Uint8Array desde el ArrayBuffer
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Subir usando el arrayBuffer directamente
+        const { error: uploadError, data } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, uint8Array, {
+            contentType: `image/${fileExt}`,
+            upsert: true,
+          });
+
+        if (uploadError) {
+          console.error('Error detallado al subir:', uploadError);
+          throw uploadError;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        // Actualizar perfil con nueva URL
+        await this.updateProfile(userId, { avatar_url: publicUrl });
+
+        return publicUrl;
+      }
+
+      // Para web
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, blob);
+        .upload(filePath, byteArray, {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Error detallado al subir:', uploadError);
+        throw uploadError;
+      }
 
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
