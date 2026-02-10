@@ -19,6 +19,32 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const PROFILE_FETCH_TIMEOUT_MS = 5000; // Si getUserProfile tarda más, usar fallback para no bloquear
+
+/** Ejecuta getUserProfile con timeout - evita bloqueo si la petición cuelga */
+async function getUserProfileWithTimeout(userId: string): Promise<UserProfile | null> {
+  const timeoutPromise = new Promise<null>((_, reject) =>
+    setTimeout(() => reject(new Error('Profile fetch timeout')), PROFILE_FETCH_TIMEOUT_MS)
+  );
+  return Promise.race([
+    authService.getUserProfile(userId),
+    timeoutPromise,
+  ]);
+}
+
+/** Crea perfil mínimo desde auth.user cuando no existe en BD o falla la consulta */
+function createFallbackProfile(authUser: { id: string; email?: string; user_metadata?: Record<string, unknown> }): UserProfile {
+  const metadata = authUser.user_metadata ?? {};
+  const fullName = (metadata.full_name as string) ?? '';
+  const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+  return {
+    id: authUser.id,
+    email: authUser.email ?? '',
+    first_name: (metadata.first_name as string) ?? nameParts[0] ?? '',
+    last_name: (metadata.last_name as string) ?? nameParts.slice(1).join(' ') ?? '',
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -43,13 +69,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Auth event:', event);
         
         if (session?.user) {
-          const profile = await authService.getUserProfile(session.user.id);
-          setState({
-            user: profile,
-            session,
-            loading: false,
-            isAuthenticated: true,
-          });
+          try {
+            let profile = await getUserProfileWithTimeout(session.user.id);
+            // Si no existe perfil (usuario nuevo o trigger falló), crear uno mínimo desde auth
+            if (!profile) {
+              profile = createFallbackProfile(session.user);
+            }
+            setState({
+              user: profile,
+              session,
+              loading: false,
+              isAuthenticated: true,
+            });
+          } catch (error) {
+            console.error('Error al obtener perfil en auth:', error);
+            setState({
+              user: createFallbackProfile(session.user),
+              session,
+              loading: false,
+              isAuthenticated: true,
+            });
+          }
         } else {
           setState({
             user: null,
@@ -80,13 +120,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const session = await authService.getSession();
       
       if (session?.user) {
-        const profile = await authService.getUserProfile(session.user.id);
-        setState({
-          user: profile,
-          session,
-          loading: false,
-          isAuthenticated: true,
-        });
+        try {
+          let profile = await getUserProfileWithTimeout(session.user.id);
+          if (!profile) {
+            profile = createFallbackProfile(session.user);
+          }
+          setState({
+            user: profile,
+            session,
+            loading: false,
+            isAuthenticated: true,
+          });
+        } catch (profileError) {
+          console.error('Error al cargar perfil:', profileError);
+          setState({
+            user: createFallbackProfile(session.user),
+            session,
+            loading: false,
+            isAuthenticated: true,
+          });
+        }
       } else {
         setState({
           user: null,
@@ -109,14 +162,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       const { session, user } = await authService.signIn({ email, password });
-      const profile = await authService.getUserProfile(user.id);
-      
-      setState({
-        user: profile,
-        session,
-        loading: false,
-        isAuthenticated: true,
-      });
+      try {
+        let profile = await getUserProfileWithTimeout(user.id);
+        if (!profile) profile = createFallbackProfile(user);
+        setState({
+          user: profile,
+          session,
+          loading: false,
+          isAuthenticated: true,
+        });
+      } catch (profileError) {
+        console.error('Error al cargar perfil en signIn:', profileError);
+        setState({
+          user: createFallbackProfile(user),
+          session,
+          loading: false,
+          isAuthenticated: true,
+        });
+      }
     } catch (error) {
       console.error('Error en sign in:', error);
       throw error;

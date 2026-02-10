@@ -34,7 +34,8 @@ export default function CourtForm({ adminData, court }: CourtFormProps) {
       has_lighting: formData.get('has_lighting') === 'on',
       has_parking: formData.get('has_parking') === 'on',
       has_changing_rooms: formData.get('has_changing_rooms') === 'on',
-      price_per_hour: Number(formData.get('price_per_hour')),
+      day_price: Number(formData.get('day_price')),
+      night_price: Number(formData.get('night_price')),
       currency: 'CLP',
       capacity: Number(formData.get('capacity')) || null,
       is_active: formData.get('is_active') === 'on',
@@ -176,19 +177,37 @@ export default function CourtForm({ adminData, court }: CourtFormProps) {
         </div>
 
         <div>
-          <label htmlFor="price_per_hour" className="block text-sm font-medium text-gray-700">
-            Precio por hora (CLP) *
+          <label htmlFor="day_price" className="block text-sm font-medium text-gray-700">
+            Precio Diurno (CLP) *
           </label>
           <input
             type="number"
-            name="price_per_hour"
-            id="price_per_hour"
+            name="day_price"
+            id="day_price"
             required
             min="0"
-            defaultValue={court?.price_per_hour}
+            defaultValue={court?.day_price}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 px-3 py-2 border"
             placeholder="25000"
           />
+          <p className="mt-1 text-xs text-gray-500">Desde 10:00 hasta 17:59 hrs</p>
+        </div>
+
+        <div>
+          <label htmlFor="night_price" className="block text-sm font-medium text-gray-700">
+            Precio Nocturno (CLP) *
+          </label>
+          <input
+            type="number"
+            name="night_price"
+            id="night_price"
+            required
+            min="0"
+            defaultValue={court?.night_price}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 px-3 py-2 border"
+            placeholder="30000"
+          />
+          <p className="mt-1 text-xs text-gray-500">Desde 18:00 hasta 09:59 hrs</p>
         </div>
 
         <div>

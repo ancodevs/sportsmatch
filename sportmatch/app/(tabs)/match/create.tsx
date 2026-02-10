@@ -11,10 +11,12 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeBack } from '@/hooks/useSafeBack';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '@/services/supabase';
+import { getAvailableSlotsForCourt, type TimeSlot } from '@/services/schedule.service';
 
 interface Region {
   id: number;
@@ -50,20 +52,21 @@ interface Court {
   has_lighting: boolean;
   has_parking: boolean;
   has_changing_rooms: boolean;
-  price_per_hour: number;
+  day_price: number;
+  night_price: number;
   capacity: number;
   admin_id: string;
 }
 
 export default function CreateMatchScreen() {
   const router = useRouter();
+  const handleBack = useSafeBack('/(tabs)/match');
   
   // Form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [datetime, setDatetime] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [maxPlayers, setMaxPlayers] = useState('10');
   const [matchType, setMatchType] = useState('futbol');
   const [gameMode, setGameMode] = useState('selection');
@@ -85,6 +88,10 @@ export default function CreateMatchScreen() {
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
   const [filteredCourts, setFilteredCourts] = useState<Court[]>([]);
   const [isLoadingCourts, setIsLoadingCourts] = useState(false);
+  
+  // Slots (horarios de gestión del admin)
+  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   
   // Loading state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -156,6 +163,37 @@ export default function CreateMatchScreen() {
       }
     }
   }, [matchType, courts]);
+
+  // Cargar slots disponibles (horarios de gestión del admin) al cambiar cancha o fecha
+  const bookingDateStr = `${datetime.getFullYear()}-${String(datetime.getMonth() + 1).padStart(2, '0')}-${String(datetime.getDate()).padStart(2, '0')}`;
+  useEffect(() => {
+    if (!selectedCourtId) {
+      setAvailableSlots([]);
+      return;
+    }
+    setLoadingSlots(true);
+    getAvailableSlotsForCourt(selectedCourtId, bookingDateStr)
+      .then((slots) => {
+        setAvailableSlots(slots);
+        if (slots.length > 0) {
+          const timeStr = `${String(datetime.getHours()).padStart(2, '0')}:${String(datetime.getMinutes()).padStart(2, '0')}`;
+          const match = slots.find((s) => s.start === timeStr);
+          if (!match) {
+            const [h, m] = slots[0].start.split(':').map(Number);
+            setDatetime((prev) => {
+              const next = new Date(prev);
+              next.setHours(h, m, 0, 0);
+              return next;
+            });
+          }
+        }
+        setLoadingSlots(false);
+      })
+      .catch(() => {
+        setAvailableSlots([]);
+        setLoadingSlots(false);
+      });
+  }, [selectedCourtId, bookingDateStr]);
 
   const loadUserRegion = async () => {
     try {
@@ -293,15 +331,17 @@ export default function CreateMatchScreen() {
     }
   };
 
-  const onTimeChange = (event: any, selectedTime?: Date) => {
-    setShowTimePicker(Platform.OS === 'ios');
-    if (selectedTime) {
-      const newDateTime = new Date(datetime);
-      newDateTime.setHours(selectedTime.getHours());
-      newDateTime.setMinutes(selectedTime.getMinutes());
-      setDatetime(newDateTime);
-    }
+  const onSlotSelect = (slotStart: string) => {
+    const [h, m] = slotStart.split(':').map(Number);
+    const newDateTime = new Date(datetime);
+    newDateTime.setHours(h, m, 0, 0);
+    setDatetime(newDateTime);
   };
+
+  const startTimeStr = `${String(datetime.getHours()).padStart(2, '0')}:${String(datetime.getMinutes()).padStart(2, '0')}`;
+  const selectedSlotStart = availableSlots.some((s) => s.start === startTimeStr)
+    ? startTimeStr
+    : availableSlots[0]?.start ?? '';
 
   const validateForm = () => {
     if (!title.trim()) {
@@ -310,6 +350,18 @@ export default function CreateMatchScreen() {
     }
     if (!selectedCourtId) {
       Alert.alert('Error', 'Por favor selecciona una cancha');
+      return false;
+    }
+    if (availableSlots.length === 0 && selectedCourtId) {
+      Alert.alert(
+        'Sin horarios',
+        'No hay horarios disponibles para esta cancha en esta fecha. Configura la cancha en el panel de administración o elige otra fecha.'
+      );
+      return false;
+    }
+    const timeStr = `${String(datetime.getHours()).padStart(2, '0')}:${String(datetime.getMinutes()).padStart(2, '0')}`;
+    if (!availableSlots.some((s) => s.start === timeStr)) {
+      Alert.alert('Error', 'Selecciona un horario disponible de la lista');
       return false;
     }
     if (datetime < new Date()) {
@@ -337,6 +389,8 @@ export default function CreateMatchScreen() {
         return;
       }
 
+      const totalPrice = parseInt(price) || 0;
+
       const { data, error } = await supabase
         .from('matches')
         .insert([
@@ -348,8 +402,7 @@ export default function CreateMatchScreen() {
             max_players: parseInt(maxPlayers),
             match_type: matchType,
             game_mode: gameMode,
-            gender_mode: genderMode,
-            price: parseInt(price),
+            price: totalPrice,
             created_by: user.id,
             status: 'open' // Estado inicial: abierto para inscripciones
           }
@@ -390,7 +443,7 @@ export default function CreateMatchScreen() {
         [
           {
             text: 'OK',
-            onPress: () => router.back()
+            onPress: () => handleBack()
           }
         ]
       );
@@ -412,7 +465,7 @@ export default function CreateMatchScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>Crear Partido</Text>
@@ -471,11 +524,11 @@ export default function CreateMatchScreen() {
           <Text style={styles.label}>Región *</Text>
           <View style={styles.pickerContainer}>
             <Picker
-              selectedValue={selectedRegionId}
-              onValueChange={(value) => setSelectedRegionId(value)}
+              selectedValue={selectedRegionId ?? ''}
+              onValueChange={(value) => setSelectedRegionId(value === '' ? null : value)}
               style={styles.picker}
             >
-              <Picker.Item label="Selecciona una región" value={null} />
+              <Picker.Item label="Selecciona una región" value="" />
               {regions.map((region) => (
                 <Picker.Item 
                   key={region.id} 
@@ -502,11 +555,11 @@ export default function CreateMatchScreen() {
               <>
                 <View style={styles.pickerContainer}>
                   <Picker
-                    selectedValue={selectedAdminUserId}
-                    onValueChange={(value) => setSelectedAdminUserId(value)}
+                    selectedValue={selectedAdminUserId ?? ''}
+                    onValueChange={(value) => setSelectedAdminUserId(value === '' ? null : value)}
                     style={styles.picker}
                   >
-                    <Picker.Item label="Selecciona un recinto" value={null} />
+                    <Picker.Item label="Selecciona un recinto" value="" />
                     {adminUsers.map((admin) => (
                       <Picker.Item 
                         key={admin.user_id} 
@@ -569,11 +622,11 @@ export default function CreateMatchScreen() {
             ) : filteredCourts.length > 0 ? (
               <View style={styles.pickerContainer}>
                 <Picker
-                  selectedValue={selectedCourtId}
-                  onValueChange={(value) => setSelectedCourtId(value)}
+                  selectedValue={selectedCourtId ?? ''}
+                  onValueChange={(value) => setSelectedCourtId(value === '' ? null : value)}
                   style={styles.picker}
                 >
-                  <Picker.Item label="Selecciona una cancha" value={null} />
+                  <Picker.Item label="Selecciona una cancha" value="" />
                   {filteredCourts.map((court) => (
                     <Picker.Item 
                       key={court.id} 
@@ -641,53 +694,111 @@ export default function CreateMatchScreen() {
           </View>
         )}
 
-        {/* Fecha y Hora */}
-        <View style={styles.row}>
-          <View style={[styles.formGroup, styles.halfWidth]}>
-            <Text style={styles.label}>Fecha *</Text>
-            <TouchableOpacity 
-              style={styles.dateButton}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Ionicons name="calendar-outline" size={20} color="#10B981" />
-              <Text style={styles.dateButtonText}>
-                {datetime.toLocaleDateString('es-CL')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.formGroup, styles.halfWidth]}>
-            <Text style={styles.label}>Hora *</Text>
-            <TouchableOpacity 
-              style={styles.dateButton}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Ionicons name="time-outline" size={20} color="#10B981" />
-              <Text style={styles.dateButtonText}>
-                {datetime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            </TouchableOpacity>
-          </View>
+        {/* Fecha */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Fecha *</Text>
+          {Platform.OS === 'web' ? (
+            <input
+              type="date"
+              value={datetime.toISOString().split('T')[0]}
+              onChange={(e) => {
+                const d = new Date(e.target.value);
+                const newDateTime = new Date(datetime);
+                newDateTime.setFullYear(d.getFullYear());
+                newDateTime.setMonth(d.getMonth());
+                newDateTime.setDate(d.getDate());
+                setDatetime(newDateTime);
+              }}
+              style={{
+                backgroundColor: '#F9FAFB',
+                border: '1px solid #E5E7EB',
+                borderRadius: 12,
+                padding: '12px 16px',
+                fontSize: 16,
+                color: '#000',
+                minHeight: 50,
+                width: '100%',
+              }}
+              min={new Date().toISOString().split('T')[0]}
+            />
+          ) : (
+            <>
+              <TouchableOpacity 
+                style={styles.dateButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#10B981" />
+                <Text style={styles.dateButtonText}>
+                  {datetime.toLocaleDateString('es-CL')}
+                </Text>
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={datetime}
+                  mode="date"
+                  display="default"
+                  onChange={onDateChange}
+                  minimumDate={new Date()}
+                />
+              )}
+            </>
+          )}
         </View>
 
-        {showDatePicker && (
-          <DateTimePicker
-            value={datetime}
-            mode="date"
-            display="default"
-            onChange={onDateChange}
-            minimumDate={new Date()}
-          />
-        )}
+        {/* Horario Disponible * - grid como en la imagen */}
+        <View style={styles.formGroup}>
+          <View style={styles.labelRow}>
+            <Ionicons name="time-outline" size={18} color="#6B7280" />
+            <Text style={styles.label}>Horario Disponible *</Text>
+          </View>
 
-        {showTimePicker && (
-          <DateTimePicker
-            value={datetime}
-            mode="time"
-            display="default"
-            onChange={onTimeChange}
-          />
-        )}
+          {!selectedCourtId || !bookingDateStr ? (
+            <View style={styles.infoBoxWarning}>
+              <Ionicons name="information-circle-outline" size={20} color="#B45309" />
+              <Text style={styles.infoBoxWarningText}>
+                Selecciona cancha y fecha para ver los horarios disponibles.
+              </Text>
+            </View>
+          ) : loadingSlots ? (
+            <View style={styles.slotGridPlaceholder}>
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text style={styles.slotGridPlaceholderText}>Cargando horarios...</Text>
+            </View>
+          ) : availableSlots.length === 0 ? (
+            <View style={styles.infoBoxWarning}>
+              <Ionicons name="alert-circle-outline" size={20} color="#B45309" />
+              <Text style={styles.infoBoxWarningText}>
+                El administrador debe configurar los horarios en Gestión de Horarios para habilitar reservas en esta cancha y fecha.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+                <Text style={styles.infoBoxText}>
+                  Solo se muestran horarios disponibles según el recinto. Los ya reservados no aparecen.
+                </Text>
+              </View>
+              <View style={styles.slotGrid}>
+                {availableSlots.map((slot) => {
+                  const isSelected = startTimeStr === slot.start;
+                  return (
+                    <TouchableOpacity
+                      key={slot.start}
+                      style={[styles.slotButton, isSelected && styles.slotButtonSelected]}
+                      onPress={() => onSlotSelect(slot.start)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.slotButtonText, isSelected && styles.slotButtonTextSelected]}>
+                        {slot.start}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+        </View>
 
         {/* Modo de juego */}
         <View style={styles.formGroup}>
@@ -979,11 +1090,112 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#059669',
   },
-  helperText: {
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  infoBoxText: {
+    flex: 1,
     fontSize: 13,
     color: '#6B7280',
+    lineHeight: 20,
+  },
+  infoBoxWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  infoBoxWarningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#B45309',
+    lineHeight: 20,
+  },
+  slotGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  slotButton: {
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotButtonSelected: {
+    backgroundColor: '#D1FAE5',
+    borderColor: '#10B981',
+    borderWidth: 2,
+  },
+  slotButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  slotButtonTextSelected: {
+    color: '#059669',
+  },
+  slotGridPlaceholder: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  slotGridPlaceholderText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  lightingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     marginTop: 8,
-    fontStyle: 'italic',
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+  lightingLabel: {
+    fontSize: 15,
+    color: '#374151',
+    flex: 1,
   },
   createButton: {
     backgroundColor: '#10B981',

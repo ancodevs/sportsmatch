@@ -8,6 +8,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -227,29 +228,31 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Estás seguro que quieres cerrar sesión?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Cerrar sesión',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut();
-              router.replace('/(auth)/login');
-            } catch (error) {
-              Alert.alert('Error', 'No se pudo cerrar sesión');
-            }
-          },
-        },
-      ]
-    );
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      // El layout redirige automáticamente a login cuando isAuthenticated cambia
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo cerrar sesión');
+    }
+  };
+
+  const onPressSignOut = () => {
+    if (Platform.OS === 'web') {
+      // Alert.alert no ejecuta onPress en web, usar confirm
+      if (typeof window !== 'undefined' && window.confirm('¿Estás seguro que quieres cerrar sesión?')) {
+        handleSignOut();
+      }
+    } else {
+      Alert.alert(
+        'Cerrar sesión',
+        '¿Estás seguro que quieres cerrar sesión?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Cerrar sesión', style: 'destructive', onPress: handleSignOut },
+        ]
+      );
+    }
   };
 
   return (
@@ -580,7 +583,7 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={24} color="#CCC" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem} onPress={handleSignOut}>
+        <TouchableOpacity style={styles.menuItem} onPress={onPressSignOut}>
           <View style={styles.menuItemLeft}>
             <Ionicons name="log-out-outline" size={24} color="#FF3B30" />
             <Text style={[styles.menuItemText, styles.menuItemDanger]}>

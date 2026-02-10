@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import Sidebar from '@/components/Sidebar';
-import Header from '@/components/Header';
+import DashboardClient from '@/components/DashboardClient';
 
 export default async function DashboardLayout({
   children,
@@ -15,7 +14,6 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  // Verificar que es admin
   const { data: adminData } = await supabase
     .from('admin_users')
     .select('*')
@@ -27,14 +25,8 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={user} adminData={adminData} />
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
-      </div>
-    </div>
+    <DashboardClient user={user} adminData={adminData}>
+      {children}
+    </DashboardClient>
   );
 }

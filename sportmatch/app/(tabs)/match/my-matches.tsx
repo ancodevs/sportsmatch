@@ -1,488 +1,244 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  RefreshControl,
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   ActivityIndicator,
-  Alert
+  RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeBack } from '@/hooks/useSafeBack';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../../services/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { getMyMatches, getMyBookings, type Match, type Booking } from '@/services/my-matches.service';
 
-interface Match {
-  id: string;
-  title: string;
-  description: string;
-  datetime: string;
-  status: string;
-  match_type: string;
-  game_mode: string;
-  gender_mode: string;
-  max_players: number;
-  price: number;
-  created_by: string;
-  courts: {
-    name: string;
-    admin_users: {
-      business_name: string;
-      address: string;
-      cities: {
-        name: string;
-        regions: {
-          name: string;
-        };
-      };
-    } | null;
-  } | null;
-  match_players: any[];
-}
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmada',
+  cancelled: 'Cancelada',
+  completed: 'Completada',
+};
 
-type TabType = 'upcoming' | 'confirmed' | 'finished' | 'organized';
+const MATCH_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmado',
+  in_progress: 'En curso',
+  completed: 'Completado',
+  cancelled: 'Cancelado',
+};
 
 export default function MyMatchesScreen() {
   const router = useRouter();
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [selectedTab, setSelectedTab] = useState<TabType>('upcoming');
+  const { user } = useAuth();
   const [matches, setMatches] = useState<Match[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (currentUserId) {
-      loadMatches();
-    }
-  }, [currentUserId, selectedTab]);
-
-  const loadUser = async () => {
+  const loadData = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
-      }
+      const [matchesData, bookingsData] = await Promise.all([
+        getMyMatches(user.id),
+        getMyBookings(user.id),
+      ]);
+      setMatches(matchesData);
+      setBookings(bookingsData);
     } catch (error) {
-      console.error('Error loading user:', error);
-    }
-  };
-
-  const loadMatches = async () => {
-    if (!currentUserId) return;
-
-    try {
-      setIsLoading(true);
-
-      // Paso 1: Obtener matches básicos
-      let matchQuery = supabase
-        .from('matches')
-        .select(`
-          id,
-          title,
-          description,
-          datetime,
-          status,
-          match_type,
-          game_mode,
-          gender_mode,
-          max_players,
-          price,
-          created_by,
-          court_id
-        `);
-
-      // Filtrar según el tab seleccionado
-      switch (selectedTab) {
-        case 'upcoming':
-          matchQuery = matchQuery.in('status', ['open', 'full']);
-          break;
-        case 'confirmed':
-          matchQuery = matchQuery.eq('status', 'confirmed');
-          break;
-        case 'finished':
-          matchQuery = matchQuery.eq('status', 'finished');
-          break;
-        case 'organized':
-          matchQuery = matchQuery
-            .eq('created_by', currentUserId)
-            .neq('status', 'cancelled');
-          break;
-      }
-
-      // Ordenar por fecha
-      matchQuery = matchQuery.order('datetime', { ascending: selectedTab === 'finished' ? false : true });
-
-      const { data: matchesData, error: matchesError } = await matchQuery;
-
-      if (matchesError) throw matchesError;
-      if (!matchesData || matchesData.length === 0) {
-        setMatches([]);
-        return;
-      }
-
-      // Paso 2: Obtener match_players para filtrar
-      const { data: playersData, error: playersError } = await supabase
-        .from('match_players')
-        .select('id, match_id, player_id, team')
-        .in('match_id', matchesData.map((m: any) => m.id));
-
-      if (playersError) throw playersError;
-
-      // Paso 3: Obtener courts
-      const courtIds = matchesData
-        .map((m: any) => m.court_id)
-        .filter((id: any) => id !== null);
-
-      let courtsData: any[] = [];
-      if (courtIds.length > 0) {
-        const { data: courts, error: courtsError } = await supabase
-          .from('courts')
-          .select('id, name, admin_id')
-          .in('id', courtIds);
-
-        if (courtsError) throw courtsError;
-        courtsData = courts || [];
-      }
-
-      // Paso 4: Obtener admin_users
-      const adminIds = courtsData
-        .map((c: any) => c.admin_id)
-        .filter((id: any) => id !== null);
-
-      let adminsData: any[] = [];
-      if (adminIds.length > 0) {
-        const { data: admins, error: adminsError } = await supabase
-          .from('admin_users')
-          .select('id, business_name, address, city_id')
-          .in('id', adminIds);
-
-        if (adminsError) throw adminsError;
-        adminsData = admins || [];
-      }
-
-      // Paso 5: Obtener cities
-      const cityIds = adminsData
-        .map((a: any) => a.city_id)
-        .filter((id: any) => id !== null);
-
-      let citiesData: any[] = [];
-      if (cityIds.length > 0) {
-        const { data: cities, error: citiesError } = await supabase
-          .from('cities')
-          .select('id, name, region_id')
-          .in('id', cityIds);
-
-        if (citiesError) throw citiesError;
-        citiesData = cities || [];
-      }
-
-      // Paso 6: Obtener regions
-      const regionIds = citiesData
-        .map((c: any) => c.region_id)
-        .filter((id: any) => id !== null);
-
-      let regionsData: any[] = [];
-      if (regionIds.length > 0) {
-        const { data: regions, error: regionsError } = await supabase
-          .from('regions')
-          .select('id, name')
-          .in('id', regionIds);
-
-        if (regionsError) throw regionsError;
-        regionsData = regions || [];
-      }
-
-      // Combinar todos los datos
-      const enrichedMatches = matchesData.map((match: any) => {
-        const court = courtsData.find((c: any) => c.id === match.court_id);
-        const admin = court ? adminsData.find((a: any) => a.id === court.admin_id) : null;
-        const city = admin ? citiesData.find((c: any) => c.id === admin.city_id) : null;
-        const region = city ? regionsData.find((r: any) => r.id === city.region_id) : null;
-
-        return {
-          ...match,
-          courts: court ? {
-            name: court.name,
-            admin_users: admin ? {
-              business_name: admin.business_name,
-              address: admin.address,
-              cities: city ? {
-                name: city.name,
-                regions: region ? {
-                  name: region.name
-                } : null
-              } : null
-            } : null
-          } : null,
-          match_players: playersData?.filter((p: any) => p.match_id === match.id) || []
-        };
-      });
-
-      // Filtrar en el cliente según participación (excepto para organized)
-      let filteredMatches = enrichedMatches;
-      if (selectedTab !== 'organized') {
-        filteredMatches = enrichedMatches.filter((match: any) => 
-          match.match_players.some((p: any) => p.player_id === currentUserId)
-        );
-      }
-
-      setMatches(filteredMatches as any);
-    } catch (error: any) {
-      console.error('Error loading matches:', error);
-      Alert.alert('Error', 'No se pudieron cargar los partidos');
+      console.error('Error loading matches/bookings:', error);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        setLoading(true);
+        loadData();
+      }
+    }, [user?.id, loadData])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
-  const onRefresh = async () => {
-    setIsRefreshing(true);
-    await loadMatches();
-    setIsRefreshing(false);
-  };
+  const handleBack = useSafeBack('/(tabs)/match');
 
-  const formatDate = (datetime: string) => {
-    const date = new Date(datetime);
-    const now = new Date();
-    const diffTime = date.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    const timeStr = date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-
-    if (diffDays === 0) return `Hoy ${timeStr}`;
-    if (diffDays === 1) return `Mañana ${timeStr}`;
-    if (diffDays === -1) return `Ayer ${timeStr}`;
-    if (diffDays > 1 && diffDays < 7) return `En ${diffDays} días ${timeStr}`;
-    
-    return date.toLocaleDateString('es-CL', { 
-      day: 'numeric', 
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('es-CL', {
+      weekday: 'short',
+      day: 'numeric',
       month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
     });
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'open': return '#10B981';
-      case 'full': return '#F59E0B';
-      case 'confirmed': return '#3B82F6';
-      case 'finished': return '#059669';
-      default: return '#6B7280';
-    }
+  const formatTime = (timeStr: string) => {
+    return String(timeStr).substring(0, 5);
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'open': return '✅ Abierto';
-      case 'full': return '🔒 Lleno';
-      case 'confirmed': return '✔️ Confirmado';
-      case 'finished': return '🏆 Finalizado';
-      default: return status;
-    }
+  const getStatusStyle = (status: string, isBooking: boolean) => {
+    const styles: Record<string, { bg: string; text: string }> = {
+      pending: { bg: '#FEF3C7', text: '#92400E' },
+      confirmed: { bg: '#D1FAE5', text: '#065F46' },
+      cancelled: { bg: '#FEE2E2', text: '#991B1B' },
+      completed: { bg: '#DBEAFE', text: '#1E40AF' },
+    };
+    return styles[status] || { bg: '#F3F4F6', text: '#374151' };
   };
 
-  const renderMatchCard = (match: Match) => {
-    const playerCount = match.match_players.length;
-    const isOrganizer = match.created_by === currentUserId;
+  const isEmpty = matches.length === 0 && bookings.length === 0;
 
+  if (loading) {
     return (
-      <TouchableOpacity
-        key={match.id}
-        style={styles.matchCard}
-        onPress={() => router.push(`/match/${match.id}`)}
-      >
-        {/* Header */}
-        <View style={styles.cardHeader}>
-          <View style={styles.typeChip}>
-            <Text style={styles.typeChipText}>
-              {match.match_type === 'futbol' && '⚽ Fútbol'}
-              {match.match_type === 'basketball' && '🏀 Basketball'}
-              {match.match_type === 'volleyball' && '🏐 Volleyball'}
-              {match.match_type === 'tenis' && '🎾 Tenis'}
-              {match.match_type === 'paddle' && '🎾 Pádel'}
-            </Text>
-          </View>
-          {isOrganizer && (
-            <View style={styles.organizerBadge}>
-              <Ionicons name="star" size={12} color="#F59E0B" />
-              <Text style={styles.organizerBadgeText}>Organizador</Text>
-            </View>
-          )}
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Mis Partidos</Text>
+          <View style={styles.placeholder} />
         </View>
-
-        {/* Título */}
-        <Text style={styles.matchTitle}>{match.title}</Text>
-
-        {/* Estado */}
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(match.status) + '20' }]}>
-          <Text style={[styles.statusBadgeText, { color: getStatusColor(match.status) }]}>
-            {getStatusLabel(match.status)}
-          </Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#10B981" />
+          <Text style={styles.loadingText}>Cargando...</Text>
         </View>
-
-        {/* Info */}
-        <View style={styles.cardInfo}>
-          <View style={styles.infoRow}>
-            <Ionicons name="time-outline" size={16} color="#6B7280" />
-            <Text style={styles.infoText}>{formatDate(match.datetime)}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Ionicons name="location-outline" size={16} color="#6B7280" />
-            <Text style={styles.infoText} numberOfLines={1}>
-              {match.courts?.admin_users?.business_name || 'Ubicación'}
-            </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Ionicons name="people-outline" size={16} color="#6B7280" />
-            <Text style={styles.infoText}>
-              {playerCount}/{match.max_players} jugadores
-            </Text>
-          </View>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.cardFooter}>
-          <Text style={styles.viewDetailsText}>Ver detalles →</Text>
-        </View>
-      </TouchableOpacity>
+      </View>
     );
-  };
+  }
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>Mis Partidos</Text>
         <View style={styles.placeholder} />
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsContent}
-        >
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'upcoming' && styles.tabActive]}
-            onPress={() => setSelectedTab('upcoming')}
-          >
-            <Ionicons 
-              name="calendar-outline" 
-              size={20} 
-              color={selectedTab === 'upcoming' ? '#3B82F6' : '#6B7280'} 
-            />
-            <Text style={[styles.tabText, selectedTab === 'upcoming' && styles.tabTextActive]}>
-              Próximos
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#10B981']} />
+        }
+      >
+        {isEmpty ? (
+          <View style={styles.emptySection}>
+            <Ionicons name="calendar" size={80} color="#10B981" />
+            <Text style={styles.emptySubtitle}>Tus Partidos y Reservas</Text>
+            <Text style={styles.emptyDescription}>
+              Aquí aparecerán los partidos donde estás inscrito y las reservas de cancha que hayas
+              realizado. Los demás usuarios podrán unirse a tus reservas.
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'confirmed' && styles.tabActive]}
-            onPress={() => setSelectedTab('confirmed')}
-          >
-            <Ionicons 
-              name="checkmark-circle-outline" 
-              size={20} 
-              color={selectedTab === 'confirmed' ? '#3B82F6' : '#6B7280'} 
-            />
-            <Text style={[styles.tabText, selectedTab === 'confirmed' && styles.tabTextActive]}>
-              Confirmados
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'finished' && styles.tabActive]}
-            onPress={() => setSelectedTab('finished')}
-          >
-            <Ionicons 
-              name="trophy-outline" 
-              size={20} 
-              color={selectedTab === 'finished' ? '#3B82F6' : '#6B7280'} 
-            />
-            <Text style={[styles.tabText, selectedTab === 'finished' && styles.tabTextActive]}>
-              Historial
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, selectedTab === 'organized' && styles.tabActive]}
-            onPress={() => setSelectedTab('organized')}
-          >
-            <Ionicons 
-              name="star-outline" 
-              size={20} 
-              color={selectedTab === 'organized' ? '#3B82F6' : '#6B7280'} 
-            />
-            <Text style={[styles.tabText, selectedTab === 'organized' && styles.tabTextActive]}>
-              Organizados
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-
-      {/* Content */}
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#10B981" />
-          <Text style={styles.loadingText}>Cargando partidos...</Text>
-        </View>
-      ) : (
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.contentContainer}
-          refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
-          }
-        >
-          {matches.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons 
-                name={
-                  selectedTab === 'upcoming' ? 'calendar-outline' :
-                  selectedTab === 'confirmed' ? 'checkmark-circle-outline' :
-                  selectedTab === 'finished' ? 'trophy-outline' :
-                  'star-outline'
-                } 
-                size={80} 
-                color="#E5E7EB" 
-              />
-              <Text style={styles.emptyTitle}>
-                {selectedTab === 'upcoming' && 'No tienes partidos próximos'}
-                {selectedTab === 'confirmed' && 'No tienes partidos confirmados'}
-                {selectedTab === 'finished' && 'Aún no has jugado partidos'}
-                {selectedTab === 'organized' && 'No has organizado partidos'}
-              </Text>
-              <Text style={styles.emptyDescription}>
-                {selectedTab === 'upcoming' && 'Únete a un partido desde la pestaña "Unirse"'}
-                {selectedTab === 'confirmed' && 'Los partidos confirmados aparecerán aquí'}
-                {selectedTab === 'finished' && 'Tu historial aparecerá aquí'}
-                {selectedTab === 'organized' && 'Crea un partido desde la pestaña "Crear"'}
-              </Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.statsBar}>
-                <Text style={styles.statsText}>
-                  {matches.length} {matches.length === 1 ? 'partido' : 'partidos'}
+          </View>
+        ) : (
+          <>
+            {/* Sección: Mis Reservas de Cancha (sportmatch-admin) */}
+            {bookings.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Mis Reservas de Cancha</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Canchas reservadas por ti. Otros usuarios pueden unirse.
                 </Text>
+                {bookings.map((booking) => {
+                  const statusStyle = getStatusStyle(booking.status, true);
+                  return (
+                    <View key={booking.id} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <Text style={styles.cardTitle}>{booking.courts?.name || 'Cancha'}</Text>
+                        <View style={[styles.reservedTag, { backgroundColor: '#10B981' }]}>
+                          <Ionicons name="checkmark-circle" size={14} color="#FFF" />
+                          <Text style={styles.reservedTagText}>Reservada por ti</Text>
+                        </View>
+                      </View>
+                      <View style={styles.cardRow}>
+                        <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                        <Text style={styles.cardInfo}>
+                          {formatDate(booking.booking_date)} ·{' '}
+                          {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
+                        </Text>
+                      </View>
+                      <View style={styles.cardFooter}>
+                        <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                          <Text style={[styles.statusText, { color: statusStyle.text }]}>
+                            {STATUS_LABELS[booking.status] || booking.status}
+                          </Text>
+                        </View>
+                        <Text style={styles.priceText}>
+                          ${Number(booking.total_price).toLocaleString('es-CL')}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
-              {matches.map(renderMatchCard)}
-            </>
-          )}
-        </ScrollView>
-      )}
+            )}
+
+            {/* Sección: Mis Partidos (sportmatch) */}
+            {matches.length > 0 && (
+              <View style={[styles.section, bookings.length > 0 && styles.sectionSpaced]}>
+                <Text style={styles.sectionTitle}>Mis Partidos</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Partidos donde eres organizador o participante.
+                </Text>
+                {matches.map((match) => {
+                  const statusStyle = getStatusStyle(match.status, false);
+                  const isOrganizer = match.created_by === user?.id;
+                  return (
+                    <View key={match.id} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <Text style={styles.cardTitle}>{match.title}</Text>
+                        {isOrganizer && (
+                          <View style={[styles.reservedTag, { backgroundColor: '#1F2937' }]}>
+                            <Ionicons name="person" size={14} color="#FFF" />
+                            <Text style={styles.reservedTagText}>Organizador</Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.cardRow}>
+                        <Ionicons name="location-outline" size={18} color="#6B7280" />
+                        <Text style={styles.cardInfo}>
+                          {match.courts?.name || 'Sin cancha'} · {match.match_type}
+                        </Text>
+                      </View>
+                      <View style={styles.cardRow}>
+                        <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                        <Text style={styles.cardInfo}>
+                          {formatDate(match.datetime)} ·{' '}
+                          {new Date(match.datetime).toLocaleTimeString('es-CL', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                      <View style={styles.cardFooter}>
+                        <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                          <Text style={[styles.statusText, { color: statusStyle.text }]}>
+                            {MATCH_STATUS_LABELS[match.status] || match.status}
+                          </Text>
+                        </View>
+                        {match.price > 0 && (
+                          <Text style={styles.priceText}>
+                            ${match.price.toLocaleString('es-CL')}/persona
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -555,126 +311,123 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  contentContainer: {
-    padding: 16,
-  },
-  statsBar: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  statsText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  matchCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  typeChip: {
-    backgroundColor: '#F0F9FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  typeChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0284C7',
-  },
-  organizerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  organizerBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#D97706',
-  },
-  matchTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  cardInfo: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#6B7280',
+  loadingContainer: {
     flex: 1,
-  },
-  cardFooter: {
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  viewDetailsText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#3B82F6',
-    textAlign: 'right',
-  },
-  emptyState: {
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 32,
+    gap: 12,
   },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginTop: 24,
-    marginBottom: 8,
-    textAlign: 'center',
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  emptySection: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  emptySubtitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    marginTop: 20,
+    marginBottom: 12,
   },
   emptyDescription: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
+  },
+  section: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  sectionSpaced: {
+    paddingTop: 32,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  card: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    flex: 1,
+  },
+  reservedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  reservedTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  cardInfo: {
+    fontSize: 14,
+    color: '#6B7280',
+    flex: 1,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  priceText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10B981',
   },
 });

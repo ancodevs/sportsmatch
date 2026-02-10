@@ -1,0 +1,36 @@
+---
+description: Organización y documentación del proyecto SportMatch
+alwaysApply: true
+---
+
+# Convenciones de Organización - SportMatch
+
+## Documentación
+
+- **Nueva documentación**: Crear en `docs/` con subcarpeta por tema (ej: `docs/canchas/`, `docs/matches/`)
+- **Actualizar índice**: Añadir enlace en `docs/README.md` al crear nuevo documento
+- **Formato**: Usar títulos con emojis, secciones claras, ejemplos de código cuando aplique
+- **Nombres**: MAIUSCULAS_CON_GUIONES.md para docs en docs/
+
+## Estructura de Archivos
+
+- **Migraciones BD**: `sportmatch-admin/supabase/migrations/NNN_descripcion.sql`
+- **Componentes**: PascalCase.tsx en `components/`
+- **Servicios**: kebab-case en `services/` o `lib/`
+- **Tipos**: En `types/` de cada proyecto
+
+## Relación entre Proyectos
+
+**IMPORTANTE**: `sportmatch-admin/` (panel admin) y `sportmatch/` (app móvil) comparten la misma base de datos (Supabase). Siempre relacionar ambos proyectos al implementar funcionalidades:
+
+- **sportmatch-admin**: Gestión de canchas, horarios, reservas (bookings), administradores
+- **sportmatch**: Partidos (matches), jugadores, perfiles, reservas vistas por el usuario
+
+Tablas compartidas: `profiles`, `courts`, `bookings`, `schedules`, `matches`, `match_players`, `countries`, `regions`, `cities`, `player_stats`, `admin_users`
+
+## Al Crear/Modificar
+
+1. Documentar cambios relevantes en `docs/` o en el README del subproyecto
+2. Actualizar `sportmatch/CHANGELOG.md` si afecta la app móvil
+3. Mantener coherencia con `docs/ESTRUCTURA_PROYECTO.md`
+4. Considerar el impacto en ambos proyectos (admin y app) cuando se modifiquen tablas o flujos

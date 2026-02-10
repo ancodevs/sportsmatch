@@ -80,17 +80,27 @@ export default function CourtCard({ court, adminData }: CourtCardProps) {
           </p>
         )}
 
-        <div className="flex items-center justify-between text-sm text-gray-600 mb-4">
+        <div className="flex flex-col gap-2 text-sm text-gray-600 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <DollarSign className="h-4 w-4 mr-1" />
+              <span>
+                <span className="font-medium">Diurno:</span> ${(court.day_price || 0).toLocaleString('es-CL')}/h
+              </span>
+            </div>
+            {court.capacity && (
+              <div className="flex items-center">
+                <Users className="h-4 w-4 mr-1" />
+                {court.capacity} personas
+              </div>
+            )}
+          </div>
           <div className="flex items-center">
             <DollarSign className="h-4 w-4 mr-1" />
-            ${court.price_per_hour.toLocaleString('es-CL')}/hora
+            <span>
+              <span className="font-medium">Nocturno:</span> ${(court.night_price || 0).toLocaleString('es-CL')}/h
+            </span>
           </div>
-          {court.capacity && (
-            <div className="flex items-center">
-              <Users className="h-4 w-4 mr-1" />
-              {court.capacity} personas
-            </div>
-          )}
         </div>
 
         <div className="flex gap-2">
