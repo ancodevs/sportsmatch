@@ -1,0 +1,36 @@
+---
+description: Estándares TypeScript para SportMatch
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Estándares TypeScript
+
+## General
+
+- Usar tipos explícitos en funciones públicas y servicios
+- Preferir `interface` para objetos, `type` para unions/intersections
+- Evitar `any`; usar `unknown` si el tipo es desconocido
+
+## Naming
+
+- Componentes: PascalCase
+- Funciones/variables: camelCase
+- Constantes: UPPER_SNAKE_CASE
+- Archivos de componentes: PascalCase.tsx
+- Archivos de servicios: kebab-case.service.ts
+
+## Servicios Supabase
+
+```typescript
+// ✅ Tipar respuestas
+const { data, error } = await supabase
+  .from('matches')
+  .select('*, courts(*)')
+  .returns<MatchWithCourt[]>();
+```
+
+## Documentación en Código
+
+- Comentar funciones complejas
+- JSDoc para APIs públicas y servicios
