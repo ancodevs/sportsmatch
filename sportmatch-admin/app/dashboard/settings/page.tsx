@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import SettingsForm from '@/components/SettingsForm';
+import ProfileManager from '@/components/ProfileManager';
 
 export default async function SettingsPage({
   searchParams,
@@ -14,23 +14,27 @@ export default async function SettingsPage({
 
   const { data: adminData } = await supabase
     .from('admin_users')
-    .select('*, cities(name, regions(name, countries(name)))')
+    .select('*, cities(id, name, region_id, regions(id, name, countries(name)))')
     .eq('user_id', user.id)
     .single();
+
+  // Obtener todas las regiones y ciudades para el selector
+  const { data: regions } = await supabase
+    .from('regions')
+    .select('id, name')
+    .order('name');
+
+  const { data: cities } = await supabase
+    .from('cities')
+    .select('id, name, region_id')
+    .order('name');
 
   const showLocationError = params.error === 'no_location';
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Configuración</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Gestiona tu información de administrador
-        </p>
-      </div>
-
+    <div className="space-y-6">
       {showLocationError && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-w-4xl mx-auto">
           <div className="flex">
             <div className="flex-shrink-0">
               <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
@@ -42,16 +46,20 @@ export default async function SettingsPage({
                 No puedes crear canchas sin una ubicación asignada
               </h3>
               <p className="mt-2 text-sm text-red-700">
-                Para poder crear canchas, necesitas tener una ciudad asignada. Por favor, contacta al administrador del sistema para que te asigne una ubicación.
+                Para poder crear canchas, necesitas tener una ciudad asignada. Por favor, configura tu ubicación en esta página.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      <div className="bg-white shadow-sm rounded-lg p-6">
-        <SettingsForm user={user} adminData={adminData} />
-      </div>
+      <ProfileManager
+        adminData={adminData}
+        userEmail={user.email || ''}
+        userId={user.id}
+        regions={regions || []}
+        cities={cities || []}
+      />
     </div>
   );
 }

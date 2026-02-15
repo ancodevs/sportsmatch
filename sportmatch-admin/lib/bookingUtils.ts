@@ -4,7 +4,7 @@ import { getAvailableTimeSlots, TimeSlot } from './scheduleUtils';
 export interface Booking {
   id: string;
   court_id: string;
-  player_id: string;
+  player_id: string | null; // Nullable para reservas manuales
   booking_date: string;
   start_time: string;
   end_time: string;
@@ -13,6 +13,12 @@ export interface Booking {
   currency: string;
   payment_status: 'pending' | 'paid' | 'refunded';
   notes: string | null;
+  booking_type: 'app' | 'manual';
+  // Datos del cliente externo (solo para reservas manuales)
+  customer_run?: string | null;
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
+  customer_phone?: string | null;
   created_at: string;
   updated_at: string;
   courts?: { name: string; sport_type: string } | null;
@@ -21,12 +27,19 @@ export interface Booking {
 
 export interface BookingFormData {
   court_id: string;
-  player_id: string;
   booking_date: string;
   start_time: string;
   end_time: string;
   notes?: string;
   status?: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  // Para reservas desde la app (tipo 'app')
+  player_id?: string | null;
+  // Para reservas manuales (tipo 'manual')
+  booking_type?: 'app' | 'manual';
+  customer_run?: string;
+  customer_first_name?: string;
+  customer_last_name?: string;
+  customer_phone?: string;
 }
 
 function parseTimeToMinutes(time: string): number {
@@ -165,19 +178,34 @@ export async function createBooking(data: BookingFormData): Promise<{ data: Book
   const durationHours = calculateDurationHours(data.start_time, data.end_time);
   const totalPrice = pricePerHour * durationHours;
 
+  // Construir el payload según el tipo de reserva
+  const bookingPayload: any = {
+    court_id: data.court_id,
+    booking_date: data.booking_date,
+    start_time: data.start_time,
+    end_time: data.end_time,
+    total_price: Math.round(totalPrice),
+    status: data.status ?? 'pending',
+    payment_status: 'pending',
+    notes: data.notes || null,
+    booking_type: data.booking_type || 'manual',
+  };
+
+  // Si es reserva manual, agregar datos del cliente
+  if (data.booking_type === 'manual') {
+    bookingPayload.player_id = null;
+    bookingPayload.customer_run = data.customer_run;
+    bookingPayload.customer_first_name = data.customer_first_name;
+    bookingPayload.customer_last_name = data.customer_last_name;
+    bookingPayload.customer_phone = data.customer_phone;
+  } else {
+    // Si es reserva desde la app, usar player_id
+    bookingPayload.player_id = data.player_id;
+  }
+
   const { data: booking, error } = await supabase
     .from('bookings')
-    .insert({
-      court_id: data.court_id,
-      player_id: data.player_id,
-      booking_date: data.booking_date,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      total_price: Math.round(totalPrice),
-      status: data.status ?? 'pending',
-      payment_status: 'pending',
-      notes: data.notes || null,
-    })
+    .insert(bookingPayload)
     .select('*, courts(name, sport_type), profiles(first_name, last_name, email, telefono)')
     .single();
 

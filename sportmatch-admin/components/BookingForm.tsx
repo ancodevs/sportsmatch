@@ -68,11 +68,12 @@ export default function BookingForm({
   const [startTime, setStartTime] = useState('');
   const [status, setStatus] = useState<'pending' | 'confirmed' | 'cancelled' | 'completed'>('pending');
   const [notes, setNotes] = useState('');
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  // Estados no usados porque el selector de jugador está oculto
+  // const [profiles, setProfiles] = useState<Profile[]>([]);
+  // const [searchQuery, setSearchQuery] = useState('');
   const [slots, setSlots] = useState<{ start: string; end: string; label: string }[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  // const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const isEditing = !!editingBooking;
@@ -93,6 +94,8 @@ export default function BookingForm({
     ? Number(selectedCourt?.night_price ?? 0) 
     : Number(selectedCourt?.day_price ?? 0);
 
+  // useEffect para cargar perfiles - DESHABILITADO porque el selector de jugador está oculto
+  /*
   useEffect(() => {
     if (isOpen) {
       setLoadingProfiles(true);
@@ -110,20 +113,33 @@ export default function BookingForm({
       })();
     }
   }, [isOpen]);
+  */
 
   useEffect(() => {
     if (isOpen && editingBooking) {
       setCourtId(editingBooking.court_id);
-      setPlayerId(editingBooking.player_id);
+      setPlayerId(editingBooking.player_id || '');
       setBookingDate(editingBooking.booking_date);
       setStartTime(String(editingBooking.start_time).substring(0, 5));
       setStatus((editingBooking.status as any) ?? 'pending');
       setNotes(editingBooking.notes || '');
-      const p = editingBooking.profiles;
-      if (p) {
-        setFirstName(p.first_name ?? '');
-        setLastName(p.last_name ?? '');
-        setPhoneDigits(formatPhoneForDisplay(p.telefono));
+      
+      // Cargar datos según el tipo de reserva
+      if (editingBooking.booking_type === 'manual') {
+        // Reserva manual: cargar desde customer_*
+        setRun(editingBooking.customer_run || '');
+        setFirstName(editingBooking.customer_first_name || '');
+        setLastName(editingBooking.customer_last_name || '');
+        const phone = editingBooking.customer_phone || '';
+        setPhoneDigits(formatPhoneForDisplay(phone));
+      } else {
+        // Reserva desde app: cargar desde profiles
+        const p = editingBooking.profiles;
+        if (p) {
+          setFirstName(p.first_name ?? '');
+          setLastName(p.last_name ?? '');
+          setPhoneDigits(formatPhoneForDisplay(p.telefono));
+        }
       }
     } else if (isOpen && !editingBooking) {
       setCourtId(courts[0]?.id ?? '');
@@ -157,6 +173,9 @@ export default function BookingForm({
       });
   }, [courtId, bookingDate, editingBooking?.id]);
 
+  // useEffect para autocompletar campos al seleccionar jugador - DESHABILITADO
+  // porque el campo jugador ahora está oculto
+  /*
   useEffect(() => {
     const p = profiles.find((x) => x.id === playerId);
     if (p) {
@@ -165,21 +184,35 @@ export default function BookingForm({
       setPhoneDigits(formatPhoneForDisplay(p.telefono));
     }
   }, [playerId, profiles]);
+  */
 
-  const filteredProfiles = profiles.filter((p) => {
-    const name = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
-    const email = (p.email || '').toLowerCase();
-    const query = searchQuery.toLowerCase();
-    return name.includes(query) || email.includes(query);
-  });
+  // Variable no usada porque el selector está oculto
+  // const filteredProfiles = profiles.filter((p) => {
+  //   const name = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
+  //   const email = (p.email || '').toLowerCase();
+  //   const query = searchQuery.toLowerCase();
+  //   return name.includes(query) || email.includes(query);
+  // });
 
   const selectedSlot = slots.find((s) => s.start === startTime);
   const endTime = selectedSlot?.end ?? '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!courtId || !playerId || !bookingDate || !startTime || !endTime) {
-      toast.error('Completa todos los campos obligatorios');
+    
+    // Validaciones básicas
+    if (!courtId || !bookingDate || !startTime || !endTime) {
+      toast.error('Completa todos los campos obligatorios de cancha, fecha y horario');
+      return;
+    }
+
+    if (!firstName.trim() || !lastName.trim() || !phoneDigits.trim() || phoneDigits.length !== 8) {
+      toast.error('Completa el nombre, apellido y teléfono del cliente (8 dígitos)');
+      return;
+    }
+
+    if (!run.trim()) {
+      toast.error('El RUN es obligatorio');
       return;
     }
 
@@ -187,12 +220,17 @@ export default function BookingForm({
     try {
       const data: BookingFormData = {
         court_id: courtId,
-        player_id: playerId,
         booking_date: bookingDate,
         start_time: startTime,
         end_time: endTime,
         notes: notes || undefined,
         status,
+        // Datos para reserva manual (cliente externo)
+        booking_type: 'manual',
+        customer_run: run.trim(),
+        customer_first_name: firstName.trim(),
+        customer_last_name: lastName.trim(),
+        customer_phone: `${PHONE_PREFIX}${phoneDigits}`,
       };
 
       if (isEditing) {
@@ -258,6 +296,7 @@ export default function BookingForm({
             </div>
 
             {/* Jugador * (al seleccionar se rellenan RUN, Nombre, Apellido, Teléfono) */}
+            {/* CAMPO OCULTO - Jugador se selecciona automáticamente o se omite
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Jugador *
@@ -286,6 +325,7 @@ export default function BookingForm({
                 <p className="text-xs text-gray-500 mt-1">Cargando jugadores...</p>
               )}
             </div>
+            */}
 
             {/* RUN * */}
             <div>

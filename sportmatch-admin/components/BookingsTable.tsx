@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Calendar, Clock, Phone, Mail, Check, X, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Clock, Phone, Mail, Check, X, Pencil, Trash2, Eye } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { updateBookingStatus, deleteBooking } from '@/lib/bookingUtils';
+import BookingDetailsModal from './BookingDetailsModal';
 
 interface BookingsTableProps {
   bookings: any[];
@@ -15,6 +16,7 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
   const router = useRouter();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [viewingBooking, setViewingBooking] = useState<any | null>(null);
 
   const filteredBookings =
     filterStatus === 'all'
@@ -100,8 +102,15 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
+    <>
+      <BookingDetailsModal
+        booking={viewingBooking}
+        isOpen={!!viewingBooking}
+        onClose={() => setViewingBooking(null)}
+      />
+      
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
         {[
           { value: 'all', label: 'Todas' },
           { value: 'pending', label: 'Pendiente' },
@@ -132,7 +141,7 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
                   Cancha
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Jugador
+                  Cliente
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Fecha y Hora
@@ -157,18 +166,47 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">
-                      {booking.profiles?.first_name} {booking.profiles?.last_name}
-                    </div>
-                    <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
-                      <Mail className="h-3 w-3" />
-                      {booking.profiles?.email}
-                    </div>
-                    {booking.profiles?.telefono && (
-                      <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
-                        <Phone className="h-3 w-3" />
-                        {booking.profiles.telefono}
-                      </div>
+                    {/* Mostrar datos del cliente según el tipo de reserva */}
+                    {booking.booking_type === 'manual' ? (
+                      // Reserva manual: mostrar customer_*
+                      <>
+                        <div className="text-sm text-gray-900">
+                          {booking.customer_first_name} {booking.customer_last_name}
+                        </div>
+                        <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                            Cliente externo
+                          </span>
+                        </div>
+                        {booking.customer_phone && (
+                          <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
+                            <Phone className="h-3 w-3" />
+                            {booking.customer_phone}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      // Reserva desde app: mostrar profiles
+                      <>
+                        <div className="text-sm text-gray-900">
+                          {booking.profiles?.first_name} {booking.profiles?.last_name}
+                        </div>
+                        <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">
+                            Cliente Futmatch
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
+                          <Mail className="h-3 w-3" />
+                          {booking.profiles?.email}
+                        </div>
+                        {booking.profiles?.telefono && (
+                          <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
+                            <Phone className="h-3 w-3" />
+                            {booking.profiles.telefono}
+                          </div>
+                        )}
+                      </>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -195,6 +233,14 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setViewingBooking(booking)}
+                        disabled={updatingId === booking.id}
+                        className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
+                        title="Visualizar"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
                       {booking.status === 'pending' && (
                         <>
                           <button
@@ -241,6 +287,7 @@ export default function BookingsTable({ bookings, onEdit }: BookingsTableProps) 
           </table>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

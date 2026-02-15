@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { LayoutDashboard, CalendarClock, Building2, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
+import DashboardOverview from '@/components/DashboardOverview';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -8,17 +9,19 @@ export default async function DashboardPage() {
 
   if (!user) return null;
 
-  // Obtener estadísticas
+  // Obtener datos para análisis
   const { data: courts } = await supabase
     .from('courts')
-    .select('*', { count: 'exact' })
+    .select('*')
     .eq('admin_id', user.id);
 
   const { data: bookings } = await supabase
     .from('bookings')
-    .select('*, courts!inner(*)', { count: 'exact' })
-    .eq('courts.admin_id', user.id);
+    .select('*, courts!inner(id, name, sport_type, is_active, admin_id)')
+    .eq('courts.admin_id', user.id)
+    .order('booking_date', { ascending: false });
 
+  // Stats rápidas para la parte superior
   const { data: todayBookings } = await supabase
     .from('bookings')
     .select('*, courts!inner(*)', { count: 'exact' })
@@ -69,7 +72,7 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
         <p className="mt-1 text-sm text-gray-600">
-          Resumen de tu gestión de canchas deportivas
+          Bienvenido a {courts && courts.length > 0 && courts[0]?.name ? courts[0].name.split(' - ')[0] : 'tu panel de gestión'}
         </p>
       </div>
 
@@ -99,6 +102,12 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {/* Dashboard Overview con Analytics */}
+      <DashboardOverview 
+        bookings={bookings || []} 
+        courts={courts || []} 
+      />
 
       {/* Reservas Recientes */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
